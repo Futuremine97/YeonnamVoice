@@ -181,81 +181,139 @@ def transcribe_audio(audio_b64: str) -> str:
     return _STT_SAMPLES[idx]
 
 
-# ----------------- mock LLM (자유 회화) -----------------
-# 주제별 후속 질문 (키워드 매칭). 실엔진 연동 전까지 대화를 살아있게 한다.
-TOPIC_FOLLOWUPS = {
-    ("work", "job", "office", "boss", "회사", "일"): [
-        "What do you do for work?", "Do you enjoy your job?",
-        "What's the most challenging part of your work?"],
-    ("food", "eat", "lunch", "dinner", "restaurant", "음식", "밥"): [
-        "What's your favorite food?", "Did you cook it yourself or eat out?",
-        "Do you like trying food from other countries?"],
-    ("travel", "trip", "vacation", "여행"): [
-        "Where did you go?", "What was the best part of the trip?",
-        "Where would you like to travel next?"],
-    ("movie", "music", "game", "hobby", "취미", "영화", "음악"): [
-        "What kind of movies do you enjoy?", "Who's your favorite artist?",
-        "How often do you do that?"],
-    ("weekend", "yesterday", "today", "주말", "오늘", "어제"): [
-        "What did you do?", "Sounds nice! Was it relaxing?",
-        "Do you have any plans for tomorrow?"],
-    ("study", "english", "learn", "school", "공부", "영어", "학교"): [
-        "How long have you been studying English?",
-        "What's the hardest part for you?", "What's your goal with English?"],
+# ----------------- 기본(mock) 모드: 원어민식 회화 엔진 -----------------
+# 원어민이 실제로 쓰는 구동사(phrasal verbs)·대화 훅·리액션·대화 패턴으로
+# AI 키 없이도 자연스럽고 학습에 도움되는 대화를 만든다. (전부 결정론적)
+
+# 감정 리액션 훅 — 상대 발화의 분위기에 맞춰 자연스럽게 받아치기
+HOOKS = {
+    "pos": ["Oh nice!", "That's awesome!", "I love that.", "Sounds great!",
+            "No way, that's cool!", "Nice one!"],
+    "neg": ["Oh no, that sounds rough.", "Ugh, I feel you.", "That's tough.",
+            "Sorry to hear that.", "Hang in there!"],
+    "neu": ["Oh really?", "Interesting!", "Gotcha.", "Wait, really?",
+            "Oh, nice.", "Huh, okay!"],
 }
-GENERIC_FOLLOWUPS = [
-    "That's interesting! Can you tell me more?",
-    "Nice! How did that make you feel?",
-    "I see. What happened next?",
-    "Great! Why do you think so?",
-    "Cool! Could you give me an example?",
-]
-OPENERS = ["That's great!", "Oh, nice!", "Awesome!", "I love that.", "Good for you!", "Interesting!"]
+_NEG_KW = ("tired", "exhaust", "hard", "difficult", "stress", "busy", "sad", "sick",
+           "tough", "problem", "worried", "angry", "upset", "bored", "annoy", "frustrat",
+           "힘들", "피곤", "스트레스", "바쁘", "슬프", "아프", "짜증", "걱정")
+_POS_KW = ("love", "like", "great", "happy", "fun", "awesome", "good", "excited",
+           "exciting", "nice", "enjoy", "best", "amazing", "glad", "cool", "wonderful",
+           "좋", "행복", "재밌", "신나", "최고", "멋")
 
-# 흔한 한국어식 영어 실수 → 교정 (간단 휴리스틱)
+# 주제별 후속 질문 — 구동사가 풍부한 원어민식 질문
+TOPICS = [
+    ("work", ("work", "job", "office", "boss", "회사", "일", "직장"),
+     ["What do you get up to at work?", "Are you snowed under these days?",
+      "How do you wind down after work?", "What are you working on right now?"]),
+    ("food", ("food", "eat", "ate", "lunch", "dinner", "breakfast", "restaurant",
+              "cook", "음식", "밥", "먹"),
+     ["What do you usually whip up at home?", "Do you eat out a lot?",
+      "Are you into trying new cuisines?", "Want to grab a bite sometime?"]),
+    ("travel", ("travel", "trip", "vacation", "holiday", "flight", "여행", "휴가"),
+     ["Where are you off to next?", "How did the trip pan out?",
+      "Did anything fun come up on the trip?", "Are you planning to get away soon?"]),
+    ("daily", ("movie", "music", "game", "hobby", "weekend", "today", "yesterday",
+               "study", "english", "learn", "취미", "영화", "음악", "주말", "오늘",
+               "어제", "공부", "영어"),
+     ["What did you get up to?", "What are you into these days?",
+      "Did you chill out or keep busy?", "How's it coming along?",
+      "Anything fun coming up?"]),
+]
+GENERIC_MOVES = [
+    "Tell me more about it.", "What's that like for you?", "How did it go?",
+    "What made you get into it?", "What happened next?", "How do you feel about it?",
+]
+
+# 구동사 사전 (주제별) — 표현 팁으로 가르친다: (구동사, 한국어, 일본어, 예문)
+PHRASAL = {
+    "work": [("snowed under", "일에 파묻히다", "仕事に追われている", "I'm snowed under at work this week."),
+             ("wind down", "긴장을 풀다", "リラックスする", "I wind down by watching a show."),
+             ("wrap up", "마무리하다", "終わらせる", "Let's wrap up the meeting."),
+             ("take on", "(일을) 떠맡다", "引き受ける", "I took on a new project.")],
+    "food": [("whip up", "뚝딱 만들다", "さっと作る", "I whipped up some pasta."),
+             ("eat out", "외식하다", "外食する", "We eat out on Fridays."),
+             ("grab a bite", "간단히 먹다", "軽く食べる", "Let's grab a bite later.")],
+    "travel": [("set off", "출발하다", "出発する", "We set off early in the morning."),
+               ("get away", "휴가를 떠나다", "休暇に出かける", "I need to get away for a weekend."),
+               ("pan out", "(일이) 잘 풀리다", "うまくいく", "The trip panned out great.")],
+    "daily": [("get up to", "~하며 지내다", "何をして過ごす", "What did you get up to today?"),
+              ("hang out", "어울려 놀다", "遊ぶ・過ごす", "We hung out at a cafe."),
+              ("chill out", "느긋하게 쉬다", "のんびりする", "I just chilled out at home."),
+              ("catch up", "밀린 얘기를 나누다", "近況を話す", "Let's catch up soon."),
+              ("look forward to", "기대하다", "楽しみにする", "I'm looking forward to it."),
+              ("end up", "결국 ~하게 되다", "結局~する", "We ended up staying home.")],
+}
+
+# 대화 훅(담화 표지) — 원어민이 말을 자연스럽게 잇는 표현: (표현, 한국어, 일본어)
+HOOK_TIPS = [
+    ("By the way", "그건 그렇고", "ところで"),
+    ("Speaking of which", "말 나온 김에", "そういえば"),
+    ("That reminds me", "그러고 보니", "それで思い出した"),
+    ("To be honest", "솔직히 말하면", "正直に言うと"),
+    ("Come to think of it", "생각해 보니", "考えてみると"),
+    ("Long story short", "간단히 말하면", "手短に言うと"),
+]
+
+# 흔한 한국어/일본어식 영어 실수 → 교정: (패턴, 교정형, 한국어, 일본어)
 CORRECTIONS = [
-    (r"\bi am agree\b", "I agree", "'I am agree' 대신 'I agree'가 맞아요 (agree는 동사예요)."),
-    (r"\bi have interest in\b", "I'm interested in", "더 자연스럽게는 \"I'm interested in ...\""),
-    (r"\bvery much (good|nice|fun)\b", r"really \1", "'very much good'보다 'really good'이 자연스러워요."),
-    (r"\bhow about you\?*$", "How about you?", "좋아요! 'How about you?'는 아주 자연스러운 표현이에요."),
-    (r"\bi will go to home\b", "I'll go home", "'go to home'이 아니라 'go home'이에요 (home은 부사)."),
-    (r"\bmany informations\b", "a lot of information", "'information'은 셀 수 없어서 's'를 안 붙여요."),
-    (r"\bi didn't went\b", "I didn't go", "did 뒤에는 동사원형: 'didn't go'."),
+    (r"\bi am agree\b", "I agree", "‘I am agree’가 아니라 ‘I agree’예요 (agree는 동사).", "‘I am agree’ではなく ‘I agree’ です。"),
+    (r"\bi have (a )?interest in\b", "I'm interested in", "더 자연스럽게 ‘I'm interested in …’.", "より自然に ‘I'm interested in …’."),
+    (r"\bi will go to home\b", "I'll go home", "‘go to home’이 아니라 ‘go home’ (home은 부사).", "‘go to home’ ではなく ‘go home’."),
+    (r"\bmany informations\b", "a lot of information", "‘information’은 불가산명사라 ‘s’를 안 붙여요.", "‘information’ は不可算名詞です。"),
+    (r"\bi didn'?t went\b", "I didn't go", "did 뒤엔 동사원형: ‘didn't go’.", "didの後は原形: ‘didn't go’."),
+    (r"\bvery much (good|nice|fun)\b", r"really \1", "‘very much good’보다 ‘really good’이 자연스러워요.", "‘really good’ の方が自然です。"),
+    (r"\bhow about you\b", "How about you?", "좋아요! ‘How about you?’는 아주 자연스러운 표현이에요.", "いいですね！‘How about you?’ はとても自然です。"),
 ]
-
-
-def _correct(text, native):
-    low = text.lower()
-    for pat, fix, ko in CORRECTIONS:
-        if re.search(pat, low):
-            if native == "ja":
-                return f"(添削) より自然な表現: \"{re.sub(pat, fix, low)}\""
-            return f"(교정) {ko}"
-    # 길이 기반 가벼운 격려
-    if len(text.split()) < 3:
-        if native == "ja":
-            return "(ヒント) もう少し詳しく、文で話してみましょう。"
-        return "(팁) 한 문장으로 조금 더 자세히 말해보면 좋아요. 예: \"I had a busy day because...\""
-    if native == "ja":
-        return "(添削) 自然な英語です。その調子！"
-    return "(교정) 자연스러운 문장이에요. 아주 좋아요! 👍"
 
 
 def _hash_pick(seq, seed_text):
     return seq[sum(map(ord, seed_text)) % len(seq)]
 
 
+def _sentiment(low):
+    if any(k in low for k in _NEG_KW):
+        return "neg"
+    if any(k in low for k in _POS_KW):
+        return "pos"
+    return "neu"
+
+
+def _detect_topic(low):
+    for label, kws, followups in TOPICS:
+        if any(k in low for k in kws):
+            return label, followups
+    return "daily", TOPICS[-1][2]
+
+
+def _feedback(text, low, native, label):
+    ja = (native == "ja")
+    # 1) 문법 교정 우선
+    for pat, fix, ko_t, ja_t in CORRECTIONS:
+        if re.search(pat, low):
+            return ("(添削) " + ja_t) if ja else ("(교정) " + ko_t)
+    # 2) 너무 짧으면 더 말하도록 유도
+    if len(text.split()) < 3:
+        return ("(ヒント) もう少し詳しく、文で話してみましょう。例: \"I had a busy day because...\""
+                if ja else
+                "(팁) 한 문장으로 더 자세히 말해보면 좋아요. 예: \"I had a busy day because...\"")
+    # 3) 표현 팁: 구동사 ↔ 대화 훅을 번갈아 가르침
+    if sum(map(ord, text)) % 2 == 0:
+        term, ko_g, ja_g, ex = _hash_pick(PHRASAL.get(label, PHRASAL["daily"]), text)
+        return (f"(表現) ‘{term}’ = {ja_g} — 例: {ex}" if ja
+                else f"(표현) ‘{term}’ = {ko_g} — 예: {ex}")
+    h, ko_g, ja_g = _hash_pick(HOOK_TIPS, text)
+    return (f"(会話) ネイティブは ‘{h}’({ja_g}) で自然に話をつなぎます。" if ja
+            else f"(대화 팁) 원어민은 ‘{h}’({ko_g})처럼 말을 자연스럽게 이어가요.")
+
+
 def llm_reply(text, native, level):
     low = text.lower()
-    followup = None
-    for keys, qs in TOPIC_FOLLOWUPS.items():
-        if any(k in low for k in keys):
-            followup = _hash_pick(qs, text)
-            break
-    if not followup:
-        followup = _hash_pick(GENERIC_FOLLOWUPS, text)
-    reply = f"{_hash_pick(OPENERS, text)} {followup}"
-    return reply, _correct(text, native)
+    label, followups = _detect_topic(low)
+    hook = _hash_pick(HOOKS[_sentiment(low)], text)
+    move = _hash_pick(followups + GENERIC_MOVES, text + label)
+    reply = f"{hook} {move}"
+    return reply, _feedback(text, low, native, label)
 
 
 # ----------------- 실제 대화 AI (멀티 제공자) -----------------
