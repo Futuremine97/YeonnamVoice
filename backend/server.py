@@ -203,6 +203,17 @@ _POS_KW = ("love", "like", "great", "happy", "fun", "awesome", "good", "excited"
 
 # 주제별 후속 질문 — 구동사가 풍부한 원어민식 질문
 TOPICS = [
+    ("interview", ("interview", "interviewer", "hiring", "hire", "recruiter", "resume", "cv",
+                   "candidate", "applicant", "job offer", "position", "role", "strength",
+                   "weakness", "cover letter", "qualification", "salary",
+                   "면접", "인터뷰", "채용", "지원", "이력서", "자기소개", "강점", "약점", "경력"),
+     ["Tell me a bit about yourself.",
+      "Why are you interested in this role?",
+      "What would you say your biggest strength is?",
+      "Can you walk me through your experience?",
+      "Tell me about a challenge you took on and how you dealt with it.",
+      "Where do you see yourself in a few years?",
+      "Why should we bring you on board?"]),
     ("work", ("work", "job", "office", "boss", "회사", "일", "직장"),
      ["What do you get up to at work?", "Are you snowed under these days?",
       "How do you wind down after work?", "What are you working on right now?"]),
@@ -227,6 +238,12 @@ GENERIC_MOVES = [
 
 # 구동사 사전 (주제별) — 표현 팁으로 가르친다: (구동사, 한국어, 일본어, 예문)
 PHRASAL = {
+    "interview": [("walk (someone) through", "차근차근 설명하다", "順を追って説明する", "Let me walk you through my experience."),
+                  ("stand out", "돋보이다", "目立つ", "I want my application to stand out."),
+                  ("bring to the table", "(능력을) 제공하다", "貢献できる", "I bring strong teamwork to the table."),
+                  ("take on", "(일·역할을) 맡다", "引き受ける", "I took on a leadership role."),
+                  ("follow up", "후속 연락하다", "フォローアップする", "I'll follow up after the interview."),
+                  ("come across as", "~한 인상을 주다", "~という印象を与える", "I want to come across as confident.")],
     "work": [("snowed under", "일에 파묻히다", "仕事に追われている", "I'm snowed under at work this week."),
              ("wind down", "긴장을 풀다", "リラックスする", "I wind down by watching a show."),
              ("wrap up", "마무리하다", "終わらせる", "Let's wrap up the meeting."),
@@ -254,6 +271,19 @@ HOOK_TIPS = [
     ("Come to think of it", "생각해 보니", "考えてみると"),
     ("Long story short", "간단히 말하면", "手短に言うと"),
 ]
+
+# 면접 답변 프레이밍 표현 — 인터뷰에서 강하게 들리는 문장 시작: (표현, 한국어, 일본어)
+INTERVIEW_TIPS = [
+    ("In my previous role, I…", "이전 직장에서 저는…", "前職では私は…"),
+    ("What draws me to this role is…", "이 직무에 끌리는 이유는…", "この職務に惹かれる理由は…"),
+    ("One of my key strengths is…", "제 핵심 강점 중 하나는…", "私の強みの一つは…"),
+    ("To give you a concrete example,…", "구체적인 예를 들면,…", "具体的な例を挙げると、…"),
+    ("I'd describe myself as someone who…", "저는 ~한 사람이라고 생각합니다", "私は~な人間だと思います"),
+    ("I'm keen to take on…", "~을 맡고 싶습니다", "~を引き受けたいです"),
+]
+# 행동 질문(약점·갈등·실패 등) 신호
+_BEHAVIORAL_KW = ("challenge", "difficult", "conflict", "mistake", "weakness", "fail",
+                  "problem", "약점", "실패", "어려", "갈등", "실수")
 
 # 흔한 한국어/일본어식 영어 실수 → 교정: (패턴, 교정형, 한국어, 일본어)
 CORRECTIONS = [
@@ -297,7 +327,20 @@ def _feedback(text, low, native, label):
         return ("(ヒント) もう少し詳しく、文で話してみましょう。例: \"I had a busy day because...\""
                 if ja else
                 "(팁) 한 문장으로 더 자세히 말해보면 좋아요. 예: \"I had a busy day because...\"")
-    # 3) 표현 팁: 구동사 ↔ 대화 훅을 번갈아 가르침
+    # 3) 면접 모드: 행동질문엔 STAR, 그 외엔 면접 구동사 ↔ 답변 프레이밍 표현
+    if label == "interview":
+        if any(k in low for k in _BEHAVIORAL_KW):
+            return ("(面接) 経験は STAR で答えましょう: 状況(Situation)・課題(Task)・行動(Action)・結果(Result)。"
+                    if ja else
+                    "(면접 팁) 경험담은 STAR로: 상황(Situation)·과제(Task)·행동(Action)·결과(Result) 순서로 답하면 설득력 있어요.")
+        if sum(map(ord, text)) % 2 == 0:
+            term, ko_g, ja_g, ex = _hash_pick(PHRASAL["interview"], text)
+            return (f"(表現) ‘{term}’ = {ja_g} — 例: {ex}" if ja
+                    else f"(표현) ‘{term}’ = {ko_g} — 예: {ex}")
+        ph, ko_g, ja_g = _hash_pick(INTERVIEW_TIPS, text)
+        return (f"(面接フレーズ) ‘{ph}’ — {ja_g}" if ja
+                else f"(면접 표현) ‘{ph}’ — {ko_g} 로 답을 시작하면 강하게 들려요.")
+    # 4) 일반 표현 팁: 구동사 ↔ 대화 훅을 번갈아 가르침
     if sum(map(ord, text)) % 2 == 0:
         term, ko_g, ja_g, ex = _hash_pick(PHRASAL.get(label, PHRASAL["daily"]), text)
         return (f"(表現) ‘{term}’ = {ja_g} — 例: {ex}" if ja
