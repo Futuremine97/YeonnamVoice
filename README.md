@@ -82,3 +82,8 @@ python3 -m http.server 5173
 
 - 백엔드 로직(동의·모더레이션·레이트리밋·구매/보유권) 단위 검증 완료.
 - TTS/STT/LLM/결제는 추상화된 mock — 실엔진/Stripe만 꽂으면 동작.
+
+## 라이선스
+
+[Apache License 2.0](LICENSE) — 상업적 이용·수정·배포 가능하며 특허 사용 허락을 포함합니다.
+재배포 시 `LICENSE`와 `NOTICE`를 포함하세요. © 2026 Yeonnam Voice (English For Us).

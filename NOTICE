@@ -1,0 +1,13 @@
+Yeonnam Voice (English For Us)
+Copyright 2026 Yeonnam Voice (English For Us)
+
+This product includes software developed for the "English For Us" /
+"Yeonnam Voice" project — an English conversation learning service using
+consented native-speaker voices, with on-chain provenance/licensing.
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+Third-party components (used under their own licenses):
+- OpenZeppelin Contracts (MIT) — smart contracts
+- React, ethers.js, Pretendard, and other CDN-loaded libraries — see their
+  respective licenses.
