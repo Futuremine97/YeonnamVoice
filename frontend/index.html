@@ -219,9 +219,9 @@ async function mintVoiceOnChain(cfg, voice){
   return { tx_hash: rc.hash, token_id: tokenId, wallet, chain_id: cfg.chain_id };
 }
 
-function speakText(text,accent){
+function speakText(text,accent,queue){
   if(!window.speechSynthesis||!text) return;
-  try{ speechSynthesis.cancel();
+  try{ if(!queue) speechSynthesis.cancel();   // queue=true면 앞 발화 뒤에 이어서 재생
     const u=new SpeechSynthesisUtterance(text);
     const v=pickEnVoice(accent); if(v){ u.voice=v; u.lang=v.lang; } else u.lang="en-US";
     u.rate=0.97; u.pitch=1.0;
@@ -297,10 +297,11 @@ function Practice({user,voice,setVoice,goTutors}){
   const [auto,setAuto]=useState(true); const [busy,setBusy]=useState(false); const [rec,setRec]=useState(false);
   const [mic,setMic]=useState(null);  // {airpods, label, gain}
   const [ai,setAi]=useState({use_ai:false,provider:"anthropic",model:"",has_key:false,base_url:""});
+  const [myVoices,setMyVoices]=useState([]); const [voice2,setVoice2]=useState(null);
   const endRef=useRef(null); const mrRef=useRef(null); const chunksRef=useRef([]);
   const streamRef=useRef(null); const ctxRef=useRef(null);
   const recogRef=useRef(null); const transcriptRef=useRef("");
-  useEffect(()=>{api(`/catalog/my-voices?user_id=${user.id}`).then(vs=>{if(!voice&&vs[0])setVoice(vs[0]);}).catch(()=>{});},[]);
+  useEffect(()=>{api(`/catalog/my-voices?user_id=${user.id}`).then(vs=>{setMyVoices(vs); if(!voice&&vs[0])setVoice(vs[0]);}).catch(()=>{});},[]);
   useEffect(()=>{api("/settings").then(setAi).catch(()=>{});},[]);
   useEffect(()=>{ if(window.speechSynthesis){ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged=()=>{}; } },[]);
   useEffect(()=>{endRef.current&&endRef.current.scrollIntoView({behavior:"smooth"});},[log,busy]);
@@ -316,9 +317,23 @@ function Practice({user,voice,setVoice,goTutors}){
   const send=async(t0,myAudio)=>{ const t=(t0??text).trim(); if(!t||busy)return; setText(""); setErr(""); setBusy(true);
     const history=log.filter(m=>!m.blocked).map(m=>m.role==="user"?{role:"user",text:m.text}:{role:"assistant",text:m.reply_text}).filter(m=>m.text);
     setLog(l=>[...l,{role:"user",text:t,audio:myAudio||null}]);
-    try{ const r=await api("/chat",{method:"POST",body:JSON.stringify({user_id:user.id,voice_id:voice?voice.id:null,text:t,history})});
-      setLog(l=>[...l,{role:"bot",...r}]);
-      if(auto && !r.blocked && r.reply_text){ speakText(r.reply_text, voice?voice.accent:"American"); }
+    const group = voice && voice2 && voice2.id!==voice.id;   // 3자 대화 모드
+    try{
+      if(group){
+        const r=await api("/chat/group",{method:"POST",body:JSON.stringify({user_id:user.id,voice_ids:[voice.id,voice2.id],text:t,history})});
+        if(r.blocked){ setLog(l=>[...l,{role:"bot",blocked:true,block_reason:r.block_reason}]); }
+        else{
+          (r.replies||[]).forEach((rep,idx)=>{
+            setLog(l=>[...l,{role:"bot",reply_text:rep.reply_text,audio_url:rep.audio_url,engine:rep.engine,
+              voiceId:rep.voice_id,voiceName:rep.name,accent:rep.accent,feedback:idx===0?r.feedback:null}]);
+            if(auto && rep.reply_text) speakText(rep.reply_text, rep.accent, idx>0);
+          });
+        }
+      } else {
+        const r=await api("/chat",{method:"POST",body:JSON.stringify({user_id:user.id,voice_id:voice?voice.id:null,text:t,history})});
+        setLog(l=>[...l,{role:"bot",...r}]);
+        if(auto && !r.blocked && r.reply_text){ speakText(r.reply_text, voice?voice.accent:"American"); }
+      }
     }catch(e){ setErr(e.code===402?"이 튜터는 구매 후 사용할 수 있어요. ‘튜터(목소리)’ 탭에서 선택하세요.":e.message); }
     setBusy(false);
   };
@@ -414,6 +429,12 @@ function Practice({user,voice,setVoice,goTutors}){
         <div style={{flex:1}}><b style={{fontSize:16}}>튜터를 선택하세요</b><div className="mut" style={{fontSize:12.5}}>목소리 없이 텍스트로도 대화할 수 있어요</div></div>
         <button className="btn sm" onClick={goTutors}>튜터 고르기</button>
       </>}
+      {myVoices.length>1 && <span className="toggle pill" title="3자 대화 — 두 번째 튜터 추가">👥
+        <select value={voice2?voice2.id:""} onChange={e=>setVoice2(myVoices.find(v=>v.id===e.target.value)||null)}
+          style={{border:"none",background:"transparent",font:"inherit",color:"inherit",cursor:"pointer",outline:"none",padding:0}}>
+          <option value="">1:1</option>
+          {myVoices.filter(v=>!voice||v.id!==voice.id).map(v=><option key={v.id} value={v.id}>+{v.display_name}</option>)}
+        </select></span>}
       {mic && <span className="pill" style={mic.airpods?{color:"var(--acc)",background:"rgba(99,102,241,.1)",borderColor:"rgba(99,102,241,.25)"}:{}} title={mic.label||""}>{mic.airpods?`🎧 AirPods 감지 · 감도 ${mic.gain}×`:`🎙 감도 ${mic.gain}×`}</span>}
       <span className="toggle pill" onClick={toggleAi} style={{cursor:"pointer",...(ai.use_ai?{color:"var(--acc)",background:"rgba(99,102,241,.12)",borderColor:"rgba(99,102,241,.3)"}:{})}} title="AI 답변 켜기/끄기 (계정 탭에서 제공자·키 설정)">
         <span style={{width:9,height:9,borderRadius:"50%",background:ai.use_ai?"var(--ok)":"var(--soft)",display:"inline-block"}}/> 🤖 AI {ai.use_ai?"ON":"OFF"}</span>
@@ -429,10 +450,11 @@ function Practice({user,voice,setVoice,goTutors}){
       {log.map((m,i)=> m.role==="user"
         ? <div className="row me" key={i}><div style={{maxWidth:"74%"}}><div className="bub">{m.text}</div>{m.audio && <audio controls src={m.audio} style={{marginTop:8,width:"100%"}}/>}</div></div>
         : <div className={"row bot"+(m.blocked?" blocked":"")} key={i}>
-            {voice?<Avatar seed={voice.id} size={34} radius={11}/>:<div className="miniava" style={{background:"linear-gradient(135deg,#94a3b8,#64748b)"}}>AI</div>}
+            {(m.voiceId||voice)?<Avatar seed={m.voiceId||(voice&&voice.id)} size={34} radius={11}/>:<div className="miniava" style={{background:"linear-gradient(135deg,#94a3b8,#64748b)"}}>AI</div>}
             <div>
+              {m.voiceName && <div className="mut" style={{fontSize:11.5,fontWeight:600,margin:"0 0 3px 2px"}}>{m.voiceName}</div>}
               <div className="bub">{m.blocked?("⚠️ "+m.block_reason):m.reply_text}
-                {!m.blocked && m.reply_text && <button className="spk" onClick={()=>speakText(m.reply_text, voice?voice.accent:"American")} title="다시 듣기">🔊 듣기</button>}</div>
+                {!m.blocked && m.reply_text && <button className="spk" onClick={()=>speakText(m.reply_text, m.accent||(voice&&voice.accent)||"American")} title="다시 듣기">🔊 듣기</button>}</div>
               {m.feedback && <div className={"fb"+(/(팁|ヒント|tip)/i.test(m.feedback)?" tip":"")}>{m.feedback}</div>}
               {m.engine && m.engine!=="mock" && m.engine.indexOf("실패")<0 && <div className="eng">✨ {m.engine}</div>}
               {m.engine && m.engine.indexOf("실패")>=0 && <div className="eng warn" title={m.engine}>⚠ AI 호출 실패 — 데모 답변</div>}
@@ -591,7 +613,9 @@ function Register({user,onDone}){
       <label className="ck" style={{marginTop:12}}><input type="checkbox" checked={pub} onChange={e=>setPub(e.target.checked)}/>스토어에 공개(다른 학습자도 사용)</label>
       {pub && <div className="grid g2" style={{marginTop:8}}>
         <div><div className="label">가격(센트, 0=무료)</div><input className="field" type="number" min="0" value={price} onChange={e=>setPrice(e.target.value)}/></div>
-        <div><div className="label">억양</div><select className="field" value={accent} onChange={e=>setAccent(e.target.value)}><option>American</option><option>British</option><option>Australian</option></select></div>
+        <div><div className="label">억양 / 지역</div><select className="field" value={accent} onChange={e=>setAccent(e.target.value)}>
+          <option>American</option><option>Texan / Southern</option><option>New York</option>
+          <option>Californian (LA)</option><option>British</option><option>Australian</option></select></div>
       </div>}
       <button className="btn" style={{marginTop:18}} disabled={!all||!name||!file} onClick={submit}>등록하기</button>
       {!all && <span className="mut" style={{marginLeft:12,fontSize:13}}>필수 동의에 모두 체크해야 등록됩니다</span>}

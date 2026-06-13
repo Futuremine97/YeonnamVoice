@@ -36,6 +36,16 @@ async function main() {
   await staking.waitForDeployment();
   console.log("VoiceStaking:", await staking.getAddress());
 
+  // 5) VoiceShares (목소리 분할 토큰화 + 지분 배당)
+  const Shares = await hre.ethers.getContractFactory("VoiceShares");
+  const shares = await Shares.deploy(
+    await coin.getAddress(),
+    await registry.getAddress(),
+    "https://api.englishforus.example/shares/{id}.json"
+  );
+  await shares.waitForDeployment();
+  console.log("VoiceShares:", await shares.getAddress());
+
   // License 가 보상 발행할 수 있도록 민터 권한(선택)
   await (await coin.setMinter(await license.getAddress(), true)).wait();
 

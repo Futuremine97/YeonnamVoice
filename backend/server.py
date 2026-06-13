@@ -201,6 +201,33 @@ _POS_KW = ("love", "like", "great", "happy", "fun", "awesome", "good", "excited"
            "exciting", "nice", "enjoy", "best", "amazing", "glad", "cool", "wonderful",
            "좋", "행복", "재밌", "신나", "최고", "멋")
 
+# 지역 사투리(미국 내) — 말투 훅 + 지역 표현. (진짜 발음은 복제 목소리가 재현)
+REGION_HOOKS = {
+    "south": ["Well, howdy!", "Shoot, that's great!", "Y'all, that's awesome!", "Aw, that's mighty nice!"],
+    "ny": ["Yo, nice!", "Ayy, for real?", "No way, get outta here!", "That's wild, honestly."],
+    "cali": ["Oh, totally!", "That's so rad!", "For sure, dude!", "Stoked for you!"],
+}
+REGION_SLANG = {
+    "south": [("y'all", "여러분(너희)", "みんな"), ("fixin' to", "막 ~하려는 참", "~しようとしている"),
+              ("reckon", "~인 것 같다", "~だと思う"), ("howdy", "안녕(인사)", "やあ")],
+    "ny": [("you guys", "너희", "君たち"), ("deadass", "진짜로/장난 아니고", "マジで"),
+           ("grab a slice", "피자 한 조각 먹다", "ピザを食べる"), ("the city", "맨해튼", "マンハッタン")],
+    "cali": [("hella", "엄청, 많이", "めっちゃ"), ("stoked", "완전 신난", "ワクワクして"),
+             ("gnarly", "쩌는/엄청난", "すごい"), ("for sure", "당연하지", "もちろん")],
+}
+_REGION_DESC = {"south": "Texan/Southern US", "ny": "New York City", "cali": "Southern California (LA)"}
+
+
+def _region(accent):
+    a = (accent or "").lower()
+    if "texa" in a or "south" in a:
+        return "south"
+    if "new york" in a or a == "ny":
+        return "ny"
+    if "calif" in a or "(la)" in a or "los angeles" in a:
+        return "cali"
+    return ""
+
 # 주제별 후속 질문 — 구동사가 풍부한 원어민식 질문
 TOPICS = [
     ("interview", ("interview", "interviewer", "hiring", "hire", "recruiter", "resume", "cv",
@@ -316,7 +343,7 @@ def _detect_topic(low):
     return "daily", TOPICS[-1][2]
 
 
-def _feedback(text, low, native, label):
+def _feedback(text, low, native, label, region=""):
     ja = (native == "ja")
     # 1) 문법 교정 우선
     for pat, fix, ko_t, ja_t in CORRECTIONS:
@@ -340,7 +367,12 @@ def _feedback(text, low, native, label):
         ph, ko_g, ja_g = _hash_pick(INTERVIEW_TIPS, text)
         return (f"(面接フレーズ) ‘{ph}’ — {ja_g}" if ja
                 else f"(면접 표현) ‘{ph}’ — {ko_g} 로 답을 시작하면 강하게 들려요.")
-    # 4) 일반 표현 팁: 구동사 ↔ 대화 훅을 번갈아 가르침
+    # 4) 지역 사투리 표현 가르치기
+    if region in REGION_SLANG and sum(map(ord, text)) % 3 == 0:
+        term, ko_g, ja_g = _hash_pick(REGION_SLANG[region], text)
+        return (f"(方言) ‘{term}’ = {ja_g}（{_REGION_DESC.get(region,'')}でよく使う）" if ja
+                else f"(사투리 표현) ‘{term}’ = {ko_g} — {_REGION_DESC.get(region,'')}에서 자주 써요.")
+    # 5) 일반 표현 팁: 구동사 ↔ 대화 훅을 번갈아 가르침
     if sum(map(ord, text)) % 2 == 0:
         term, ko_g, ja_g, ex = _hash_pick(PHRASAL.get(label, PHRASAL["daily"]), text)
         return (f"(表現) ‘{term}’ = {ja_g} — 例: {ex}" if ja
@@ -350,19 +382,27 @@ def _feedback(text, low, native, label):
             else f"(대화 팁) 원어민은 ‘{h}’({ko_g})처럼 말을 자연스럽게 이어가요.")
 
 
-def llm_reply(text, native, level):
+def llm_reply(text, native, level, region=""):
     low = text.lower()
     label, followups = _detect_topic(low)
-    hook = _hash_pick(HOOKS[_sentiment(low)], text)
+    sent = _sentiment(low)
+    if region in REGION_HOOKS and sent != "neg":   # 부정 감정엔 공감 우선
+        hook = _hash_pick(REGION_HOOKS[region], text)
+    else:
+        hook = _hash_pick(HOOKS[sent], text)
     move = _hash_pick(followups + GENERIC_MOVES, text + label)
     reply = f"{hook} {move}"
-    return reply, _feedback(text, low, native, label)
+    return reply, _feedback(text, low, native, label, region)
 
 
 # ----------------- 실제 대화 AI (멀티 제공자) -----------------
-def _tutor_system(native, level):
+def _tutor_system(native, level, region=""):
     lang = "Japanese" if native == "ja" else "Korean"
-    return (
+    region_line = ""
+    if region in _REGION_DESC:
+        region_line = (f"Speak with a natural {_REGION_DESC[region]} flavor in your word choice "
+                       "and slang (use it lightly and keep it easy to understand). ")
+    return region_line + (
         f"You are a warm, encouraging English conversation tutor for a {level}-level "
         f"learner whose native language is {lang}.\n"
         "CONTEXT & CONTINUITY (very important): The messages include the full recent "
@@ -407,12 +447,12 @@ def _post_json(url, payload, headers, timeout=60):
         return json.loads(r.read())
 
 
-def anthropic_reply(text, native, level, history):
+def anthropic_reply(text, native, level, history, region=""):
     key = SETTINGS["api_key"]
     if not key:
         raise RuntimeError("Anthropic API 키가 없습니다.")
     payload = {"model": SETTINGS["model"], "max_tokens": 500,
-               "system": _tutor_system(native, level),
+               "system": _tutor_system(native, level, region),
                "messages": _history_msgs(history, text)}
     data = _post_json("https://api.anthropic.com/v1/messages", payload,
                       {"content-type": "application/json", "x-api-key": key,
@@ -421,7 +461,7 @@ def anthropic_reply(text, native, level, history):
     return _parse_reply(out)
 
 
-def openai_compatible_reply(text, native, level, history):
+def openai_compatible_reply(text, native, level, history, region=""):
     """OpenAI 및 OpenAI 호환(로컬 Ollama·LM Studio, OpenRouter 등) 공용.
 
     base_url 예: https://api.openai.com/v1  |  http://localhost:11434/v1 (Ollama)
@@ -430,7 +470,7 @@ def openai_compatible_reply(text, native, level, history):
     headers = {"content-type": "application/json"}
     if SETTINGS["api_key"]:
         headers["Authorization"] = "Bearer " + SETTINGS["api_key"]
-    messages = [{"role": "system", "content": _tutor_system(native, level)}] + \
+    messages = [{"role": "system", "content": _tutor_system(native, level, region)}] + \
         _history_msgs(history, text)
     payload = {"model": SETTINGS["model"], "messages": messages, "temperature": 0.7}
     data = _post_json(base + "/chat/completions", payload, headers)
@@ -445,20 +485,61 @@ _PROVIDERS = {
 }
 
 
-def get_reply(text, native, level, history):
+def get_reply(text, native, level, history, region=""):
     """엔진 분기. AI ON이고 제공자 함수가 있으면 호출, 실패/OFF면 mock. (reply, feedback, engine)."""
     if SETTINGS["use_ai"]:
         fn = _PROVIDERS.get(SETTINGS["provider"])
         if fn:
             try:
-                r, f = fn(text, native, level, history)
+                r, f = fn(text, native, level, history, region)
                 if r:
                     return r, f, f"{SETTINGS['provider']}:{SETTINGS['model']}"
             except Exception as e:
-                r, f = llm_reply(text, native, level)
+                r, f = llm_reply(text, native, level, region)
                 return r, f, f"mock (AI 호출 실패: {e})"
-    r, f = llm_reply(text, native, level)
+    r, f = llm_reply(text, native, level, region)
     return r, f, "mock"
+
+
+# ----------------- 3자(그룹) 대화 -----------------
+CONNECTORS = ["Oh, totally.", "Right?", "I'd add to that—", "Hmm, good point.",
+              "Same here!", "Interesting take.", "Yeah, and", "True, though"]
+
+
+def _second_voice_reply(text, native, level, voice):
+    """mock 그룹용: 앞 튜터 말에 반응 + 자기 질문 (튜터마다 다르게, 지역 말투 반영)."""
+    region = _region(voice.get("accent", ""))
+    seed = text + str(voice.get("id", ""))
+    conn = _hash_pick(REGION_HOOKS[region] if region in REGION_HOOKS else CONNECTORS, seed)
+    label, followups = _detect_topic(text.lower())
+    move = _hash_pick(followups + GENERIC_MOVES, seed + "b")
+    return f"{conn} {move}"
+
+
+def group_chat(text, native, level, voices, history):
+    """튜터 여러 명의 응답 생성. 첫 튜터는 일반 엔진, 이후 튜터는 앞 말에 반응.
+    반환: ([(voice, reply, engine), ...], feedback)."""
+    first, fb, eng = get_reply(text, native, level, history, _region(voices[0].get("accent", "")))
+    out = [(voices[0], first, eng)]
+    use_ai = bool(SETTINGS["use_ai"] and _PROVIDERS.get(SETTINGS["provider"]))
+    hist2 = list(history or []) + [{"role": "user", "text": text},
+                                   {"role": "assistant", "text": first}]
+    for v in voices[1:]:
+        if use_ai:
+            try:
+                fn = _PROVIDERS[SETTINGS["provider"]]
+                prompt = ("You are another tutor in a group chat. React briefly (1-2 sentences) "
+                          "to what the previous tutor just said, add your own view, and you may ask "
+                          "the learner a short question. The learner said: " + text)
+                r, _ = fn(prompt, native, level, hist2, _region(v.get("accent", "")))
+                eng2 = f"{SETTINGS['provider']}:{SETTINGS['model']}"
+            except Exception as e:
+                r, eng2 = _second_voice_reply(text, native, level, v), f"mock (AI 실패: {e})"
+        else:
+            r, eng2 = _second_voice_reply(text, native, level, v), "mock"
+        out.append((v, r, eng2))
+        hist2 = hist2 + [{"role": "assistant", "text": r}]
+    return out, fb
 
 
 # ----------------- 헬퍼 -----------------
@@ -759,7 +840,9 @@ class H(BaseHTTPRequestHandler):
                         return self._err(403, "활성화(동의 완료)된 음성이 아닙니다.")
                     if not can_use(user["id"], voice):
                         return self._err(402, "이 목소리는 구매 후 사용할 수 있습니다. 스토어에서 구매해 주세요.")
-                reply, fb, engine = get_reply(text, user["native_language"], user["level"], body.get("history"))
+                reply, fb, engine = get_reply(text, user["native_language"], user["level"],
+                                              body.get("history"),
+                                              _region(voice["accent"]) if voice else "")
                 audio_url = None
                 if voice:
                     if not rate_ok(voice["id"]):
@@ -777,6 +860,41 @@ class H(BaseHTTPRequestHandler):
                 text = transcribe_audio(audio_b64)
                 return self._send(200, {"text": text})
 
+            if path == "/chat/group":
+                # 3자(이상) 그룹 대화: 학습자 1 + 튜터 N
+                user = DB["users"].get(body.get("user_id"))
+                if not user:
+                    return self._err(404, "user not found")
+                text = body.get("text", "")
+                ok, cat, msg = moderate(text)
+                if not ok:
+                    log("blocked", user_id=user["id"], detail=f"group category={cat}")
+                    return self._send(200, {"replies": [], "blocked": True, "block_reason": msg})
+                ids = body.get("voice_ids") or []
+                if len(ids) < 2:
+                    return self._err(422, "그룹 대화는 튜터를 2명 이상 선택하세요.")
+                voices = []
+                for vid in ids:
+                    v = DB["voices"].get(vid)
+                    if not v or v["status"] != "ACTIVE":
+                        return self._err(403, "활성화(동의 완료)된 음성이 아닙니다.")
+                    if not can_use(user["id"], v):
+                        return self._err(402, f"‘{v['display_name']}’ 튜터는 구매 후 사용할 수 있습니다.")
+                    voices.append(v)
+                reps, fb = group_chat(text, user["native_language"], user["level"],
+                                      voices, body.get("history"))
+                out = []
+                for v, rtext, eng in reps:
+                    audio_url = None
+                    if rate_ok(v["id"]):
+                        name = synth_wav(rtext, v["id"])
+                        audio_url = f"/chat/audio/{name}"
+                        log("synthesized", user_id=user["id"], voice_id=v["id"])
+                    out.append({"voice_id": v["id"], "name": v["display_name"],
+                                "accent": v.get("accent", "American"),
+                                "reply_text": rtext, "audio_url": audio_url, "engine": eng})
+                return self._send(200, {"replies": out, "feedback": fb, "blocked": False})
+
         self._err(404, "not found")
 
 
@@ -786,11 +904,12 @@ def seed_demo():
     DB["users"][sys_id] = {"id": sys_id, "email": "system@efu",
                            "native_language": "en", "level": "native"}
     demo = [
-        ("Emma", "American", "female", 0, "밝고 또렷한 미국식 발음 · 일상 회화에 적합", 92),
-        ("James", "British", "male", 0, "차분한 영국식 발음 · 비즈니스/격식 표현", 110),
-        ("Olivia", "Australian", "female", 199, "친근한 호주식 발음 · 캐주얼 대화", 78),
-        ("Noah", "American", "male", 0, "느긋한 미국식 발음 · 발음 따라하기 좋음", 65),
-        ("Sophia", "British", "female", 299, "또박또박 영국식 발음 · 초급자 추천", 130),
+        ("Emma", "American", "female", 0, "밝고 또렷한 표준 미국식 · 일상 회화에 적합", 92),
+        ("James", "British", "male", 0, "차분한 영국식 · 비즈니스/격식 표현", 110),
+        ("Tyler", "Texan / Southern", "male", 0, "느긋한 텍사스·남부 말투 · y'all, fixin' to", 88),
+        ("Mia", "New York", "female", 199, "빠르고 직설적인 뉴욕 말투 · deadass, the city", 70),
+        ("Jayden", "Californian (LA)", "male", 0, "여유로운 LA·캘리포니아 말투 · hella, stoked", 64),
+        ("Sophia", "British", "female", 299, "또박또박 영국식 · 초급자 추천", 130),
     ]
     for i, (name, accent, gender, price, desc, secs) in enumerate(demo):
         vid = f"demo{i+1}"
