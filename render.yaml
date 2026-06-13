@@ -1,0 +1,17 @@
+# Render.com Blueprint — 한 개의 웹서비스로 API + 화면(/app)을 배포
+# 사용: Render 대시보드 → New → Blueprint → 이 저장소 선택
+services:
+  - type: web
+    name: yeonnam-voice
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python backend/server.py"
+    autoDeploy: true
+    envVars:
+      # AI 답변 엔진을 쓰려면(선택) 아래를 Render 대시보드에서 설정:
+      # - key: EFU_AI_PROVIDER   value: anthropic | openai | openai_compat
+      # - key: EFU_AI_API_KEY    value: <비밀, 대시보드에서만 입력>
+      # - key: EFU_USE_AI        value: "1"
+      - key: PYTHON_VERSION
+        value: 3.12.4

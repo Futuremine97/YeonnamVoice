@@ -10,6 +10,8 @@
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+<!-- 백엔드 주소 설정(배포용). Vercel 배포 시 config.js에서 Render 백엔드 URL을 지정 -->
+<script src="config.js"></script>
 <style>
   :root{
     --bg:#f4f5fb; --ink:#13162a; --mut:#6b7095; --soft:#9aa0c4;
@@ -135,7 +137,7 @@
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef} = React;
-const API = localStorage.getItem("efu_api") || (location.protocol.indexOf("http")===0 ? location.origin : "http://localhost:8000");
+const API = localStorage.getItem("efu_api") || (typeof window!=="undefined" && window.EFU_API) || (location.protocol.indexOf("http")===0 ? location.origin : "http://localhost:8000");
 const GRADS=[
   "linear-gradient(135deg,#6366f1,#8b5cf6)","linear-gradient(135deg,#ec4899,#f97316)",
   "linear-gradient(135deg,#10b981,#06b6d4)","linear-gradient(135deg,#8b5cf6,#ec4899)",
