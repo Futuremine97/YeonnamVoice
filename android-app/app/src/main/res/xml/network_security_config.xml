@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 같은 Wi-Fi의 PC 개발 서버(http)에 접속하기 위해 cleartext 허용.
+     운영 배포 시에는 https로 바꾸고 이 설정을 제거하세요. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

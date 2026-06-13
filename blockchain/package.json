@@ -1,0 +1,20 @@
+{
+  "name": "english-for-us-voicecoin",
+  "version": "0.1.0",
+  "description": "음성 저작권 토큰(VoiceCoin) + 소유권/동의 NFT 스마트컨트랙트 (테스트넷 프로토타입)",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:local": "hardhat run scripts/deploy.js",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "node": "hardhat node"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.10",
+    "dotenv": "^16.4.5"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2"
+  }
+}

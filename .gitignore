@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/.venv/
+backend/data/
+
+# 환경변수
+.env
+
+# OS
+.DS_Store
